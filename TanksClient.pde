@@ -1,4 +1,4 @@
-import processing.net.*;
+import com.esotericsoftware.kryonet.*;
 
 import procontroll.*;
 import net.java.games.input.*;
@@ -30,7 +30,7 @@ float scalePosition;
 ClientTank[] tanks;
 boolean stopped = true;
 float prevRot = 1000.0;
-float prevMove = 1000.0;
+float prevDirection = 1000.0;
 float prevMagnitude = 1000.0;
 int messagesReceivedTimer = 0;
 int messagesReceived = 0;
@@ -46,11 +46,6 @@ void setup()
   size(800, 600);
   //size((int) (screen.height * 4.0 / 3.0), screen.height);
   
-  String inputIP = JOptionPane.showInputDialog(this, "Enter the IP address to connect to");
-  client = new Client(this, inputIP, 5115);
-  //client = new Client(this, "10.81.6.29", 5115);
-  //client = new Client(this, "192.168.0.11", 5115);
-  
   bullets = new HashMap<Integer, Sprite>();
   bulletIDs = new HashMap<Sprite, Integer>();
   
@@ -63,6 +58,63 @@ void setup()
   
   setupController();
   setupWalls();
+  
+  client = new Client();
+  client.start();
+  Network.register(client);
+  client.addListener(new Listener()
+  {
+    public void received(Connection connection, Object object)
+    {
+      messagesReceived++;
+      if(object instanceof Network.MoveClientMsg)
+      {
+        Network.MoveClientMsg moveMsg = (Network.MoveClientMsg) object;
+        int playerNum = moveMsg.player;
+        if(tanks[playerNum - 1] == null)
+        {
+          tanks[playerNum - 1] = newTank();
+        }
+        tanks[playerNum - 1].tankBase.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
+        tanks[playerNum - 1].tankTurret.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
+        tanks[playerNum - 1].tankBase.setRot(moveMsg.baseRot);
+        tanks[playerNum - 1].tankTurret.setRot(moveMsg.turretRot);
+      }
+      else if(object instanceof Network.RotateClientMsg)
+      {
+        Network.RotateClientMsg rotateMsg = (Network.RotateClientMsg) object;
+        int playerNum = rotateMsg.player;
+        tanks[playerNum - 1].tankTurret.setRot(rotateMsg.turretRot);
+      }
+      else if(object instanceof Network.HitBulletMsg || object instanceof Network.HitWallMsg || object instanceof Network.HitTankMsg)
+      {
+        processCollision(object); 
+      }
+      else if(object instanceof Network.ShootClientMsg)
+      {
+        createBullet(object);
+      }
+    }
+  });
+  String inputIP = JOptionPane.showInputDialog(this, "Enter the IP address to connect to");
+  try
+  {
+    client.connect(5000, inputIP, Network.port);
+  } 
+  catch (IOException e) 
+  {
+    e.printStackTrace();
+  }
+}
+
+/**
+ * Create a new tank.
+ * This method is made for the purpose of accessing "this" (the outer class) from
+ * inner classes.
+ */
+ClientTank newTank()
+{
+   return new ClientTank(this, scaleSize);
 }
 
 /**
@@ -141,7 +193,8 @@ void handleRBPress()
 {
   if(millis() - shotTimer > 700)
   {
-    client.write("shoot,*");
+    Network.ShootServerMsg shootMsg = new Network.ShootServerMsg();
+    client.sendTCP(shootMsg);
     shotTimer = millis();
   }
 }
@@ -153,11 +206,11 @@ void draw()
 {
   deltaTime = (float) timer.getElapsedTime();
   //Get messages from server if available
-  if(client.available() > 0)
-  {
-    receiveMessage();
-    messagesReceived++;
-  }
+//  if(client.available() > 0)
+//  {
+//    receiveMessage();
+//    messagesReceived++;
+//  }
   
   background(213, 189, 122);
   
@@ -197,39 +250,39 @@ void draw()
   text(messagesReceivedPrint, 10, 50);
 }
 
-void receiveMessage()
-{
-  String currString = client.readStringUntil('*');
-  if(currString != null)
-  {
-    String[] currMessage = currString.split(",");
-    if(currMessage[0].equals("move"))
-    {
-      int playerNum = int(currMessage[1]);
-      if(tanks[playerNum - 1] == null)
-      {
-        tanks[playerNum - 1] = new ClientTank(this, scaleSize);
-      }
-      tanks[playerNum - 1].tankBase.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
-      tanks[playerNum - 1].tankTurret.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
-      tanks[playerNum - 1].tankBase.setRot(float(currMessage[4]));
-      tanks[playerNum - 1].tankTurret.setRot(float(currMessage[5]));
-    }
-    else if(currMessage[0].equals("rotate"))
-    {
-      int playerNum = int(currMessage[1]);
-      tanks[playerNum - 1].tankTurret.setRot(float(currMessage[2]));
-    }
-    else if(currMessage[0].equals("hit"))
-    {
-      processCollision(currMessage); 
-    }
-    else if(currMessage[0].equals("shoot"))
-    {
-      createBullet(currMessage);
-    }
-  }
-}
+//void receiveMessage()
+//{
+//  String currString = client.readStringUntil('*');
+//  if(currString != null)
+//  {
+//    String[] currMessage = currString.split(",");
+//    if(currMessage[0].equals("move"))
+//    {
+//      int playerNum = int(currMessage[1]);
+//      if(tanks[playerNum - 1] == null)
+//      {
+//        tanks[playerNum - 1] = new ClientTank(this, scaleSize);
+//      }
+//      tanks[playerNum - 1].tankBase.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
+//      tanks[playerNum - 1].tankTurret.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
+//      tanks[playerNum - 1].tankBase.setRot(float(currMessage[4]));
+//      tanks[playerNum - 1].tankTurret.setRot(float(currMessage[5]));
+//    }
+//    else if(currMessage[0].equals("rotate"))
+//    {
+//      int playerNum = int(currMessage[1]);
+//      tanks[playerNum - 1].tankTurret.setRot(float(currMessage[2]));
+//    }
+//    else if(currMessage[0].equals("hit"))
+//    {
+//      processCollision(currMessage); 
+//    }
+//    else if(currMessage[0].equals("shoot"))
+//    {
+//      createBullet(currMessage);
+//    }
+//  }
+//}
 
 /**
  * Process user input during gameplay
@@ -246,7 +299,8 @@ void processUserGameInput(float deltaTime)
   {
     if(!stopped)
     {
-      client.write("stop,*");
+      Network.StopMsg stopMsg = new Network.StopMsg();
+      client.sendTCP(stopMsg);
       stopped = true;
     }
   }
@@ -254,19 +308,25 @@ void processUserGameInput(float deltaTime)
   {
     stopped = false;
     float currMagnitude = min(1.0, sqrt(sq(x) + sq(y)));
-    float currMove = degrees(atan2(y, x));
-    if(abs(prevMove - currMove) >= 90.0 && millis() - moveTimer > 15)
+    float currDirection = degrees(atan2(y, x));
+    if(abs(prevDirection - currDirection) >= 90.0 && millis() - moveTimer > 15)
     {
-      client.write("move," + currMagnitude + "," + currMove + ",*");
+      Network.MoveServerMsg moveMsg = new Network.MoveServerMsg();
+      moveMsg.magnitude = currMagnitude;
+      moveMsg.direction = currDirection;
+      client.sendTCP(moveMsg);
       prevMagnitude = currMagnitude;
-      prevMove = currMove;
+      prevDirection = currDirection;
       moveTimer = millis();
     }
-    if((abs(prevMagnitude - currMagnitude) > 0.2 || abs(prevMove - currMove) > 3.0) && millis() - moveTimer > 80)
+    if((abs(prevMagnitude - currMagnitude) > 0.2 || abs(prevDirection - currDirection) > 3.0) && millis() - moveTimer > 80)
     {
-      client.write("move," + currMagnitude + "," + currMove + ",*");
+      Network.MoveServerMsg moveMsg = new Network.MoveServerMsg();
+      moveMsg.magnitude = currMagnitude;
+      moveMsg.direction = currDirection;
+      client.sendTCP(moveMsg);
       prevMagnitude = currMagnitude;
-      prevMove = currMove;
+      prevDirection = currDirection;
       moveTimer = millis();
     }
   }
@@ -285,7 +345,9 @@ void processUserGameInput(float deltaTime)
     float currRot = degrees(atan2(y, x));
     if(abs(currRot - prevRot) > 2.0 && millis() - rotateTimer > 40)
     {
-      client.write("rotate," + currRot + ",*");
+      Network.RotateServerMsg rotateMsg = new Network.RotateServerMsg();
+      rotateMsg.turretRot = currRot;
+      client.sendTCP(rotateMsg);
       prevRot = currRot;
       rotateTimer = millis();
     } 
@@ -295,21 +357,20 @@ void processUserGameInput(float deltaTime)
 /**
  * Method for processing collision messages
  */
-void processCollision(String[] message)
+void processCollision(Object object)
 {
-  if(message[1].equals("bullet"))
+  if(object instanceof Network.HitBulletMsg)
   {
-    int hitID = int(message[2]);
-    Sprite hitBullet = bullets.get(hitID);
+    Network.HitBulletMsg hitMsg = (Network.HitBulletMsg) object;
+    Sprite hitBullet = bullets.get(hitMsg.bulletID);
     bulletIDs.remove(hitBullet);
-    bullets.remove(hitID);
+    bullets.remove(hitMsg.bulletID);
   }
-  else if(message[1].equals("wall"))
+  else if(object instanceof Network.HitWallMsg)
   {
-    int hitWallID = int(message[2]);
-    int hitBulletID = int(message[3]);
-    Sprite hitBullet = bullets.get(hitBulletID);
-    Wall hitWall = walls.get(hitWallID);
+    Network.HitWallMsg hitMsg = (Network.HitWallMsg) object;
+    Sprite hitBullet = bullets.get(hitMsg.bulletID);
+    Wall hitWall = walls.get(hitMsg.wallID);
     hitWall.hitCount++;
     if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
     {
@@ -318,38 +379,40 @@ void processCollision(String[] message)
     if(hitWall.hitCount >= 10)
     {
       wallIDs.remove(hitWall);
-      walls.remove(hitWallID);
+      walls.remove(hitMsg.wallID);
     }
     bulletIDs.remove(hitBullet);
-    bullets.remove(hitBulletID);
+    bullets.remove(hitMsg.bulletID);
   }
-  else if(message[1].equals("tank"))
+  else if(object instanceof Network.HitTankMsg)
   {
-    //tanks[int(message[2])] = null;
-    int hitBulletID = int(message[3]);
-    Sprite hitBullet = bullets.get(hitBulletID);
+    Network.HitTankMsg hitMsg = (Network.HitTankMsg) object;
+    //tanks[hitMsg.player - 1] = null;
+    Sprite hitBullet = bullets.get(hitMsg.bulletID);
     bulletIDs.remove(hitBullet);
-    bullets.remove(hitBulletID);
+    bullets.remove(hitMsg.bulletID);
   }
 }
 
 /**
- * Method that creates bullets from received server messages
+ * Method that creates bullets from a received server message
+ * @precond: object is a ShootClientMsg
  */
-void createBullet(String[] currMessage)
+void createBullet(Object object)
 {
+  Network.ShootClientMsg shootMsg = (Network.ShootClientMsg) object;
   Sprite bullet = new Sprite(this, "Images/Bullet.png", 101);
-  bullet.setRot(float(currMessage[1]));
-  bullet.setSpeed(bulletSpeed, float(currMessage[5]));
-  bullet.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
+  bullet.setRot(shootMsg.bulletRot);
+  bullet.setSpeed(bulletSpeed, shootMsg.heading);
+  bullet.setXY(shootMsg.x * scalePosition, shootMsg.y * scalePosition);
   bullet.setScale(scaleSize);
-  int bulletID = int(currMessage[4]);
-  bullets.put(bulletID, bullet);
-  bulletIDs.put(bullet, bulletID);
+  bullets.put(shootMsg.bulletID, bullet);
+  bulletIDs.put(bullet, shootMsg.bulletID);
 }
 
 void exit()
 {
-  client.write("disconnect,*");
+  Network.DisconnectMsg disconnectMsg = new Network.DisconnectMsg();
+  client.sendTCP(disconnectMsg);
   super.exit();
 }
