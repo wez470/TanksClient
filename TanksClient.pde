@@ -16,10 +16,10 @@ ControllDevice controller;
 ControllStick turretStick;
 ControllStick moveStick;
 StopWatch timer;
-HashMap<Integer, Sprite> bullets;
+ConcurrentHashMap<Integer, Sprite> bullets;
 HashMap<Sprite, Integer> bulletIDs;
 HashMap<Wall, Integer> wallIDs;
-HashMap<Integer, Wall> walls;
+ConcurrentHashMap<Integer, Wall> walls;
 float bulletSpeed;
 float deltaTime;
 float shotTimer = -1000;
@@ -46,7 +46,7 @@ void setup()
   size(800, 600);
   //size((int) (screen.height * 4.0 / 3.0), screen.height);
   
-  bullets = new HashMap<Integer, Sprite>();
+  bullets = new ConcurrentHashMap<Integer, Sprite>();
   bulletIDs = new HashMap<Sprite, Integer>();
   
   scalePosition = height / 600.0;
@@ -99,7 +99,7 @@ void setup()
   String inputIP = JOptionPane.showInputDialog(this, "Enter the IP address to connect to");
   try
   {
-    client.connect(5000, inputIP, Network.port);
+    client.connect(5000, inputIP, Network.TCPPort, Network.UDPPort);
   } 
   catch (IOException e) 
   {
@@ -122,7 +122,7 @@ ClientTank newTank()
  */
 void setupWalls()
 {
-  walls = new HashMap<Integer, Wall>();
+  walls = new ConcurrentHashMap<Integer, Wall>();
   wallIDs = new HashMap<Wall, Integer>();
   //walls created top to bottom left to right
   float wallsX[] = {0.77 * width, 0.15 * width, 0.23 * width, 0.31 * width, 0.39 * width, 0.61 * width, 0.69 * width,
@@ -152,37 +152,42 @@ void setupWalls()
  */
 void setupController()
 {
+  boolean sticks = false;
+  boolean sliders = false;
   controllIO = ControllIO.getInstance(this);
   int numDevices = controllIO.getNumberOfDevices();
   //go through all devices and find the first useable controller
   for(int i = 0; i < numDevices; i++)
   {
     int numSticks = controllIO.getDevice(i).getNumberOfSticks();
+    int numSliders = controllIO.getDevice(i).getNumberOfSliders();
     if(numSticks == 2)
     {
+      //for logitech controllers
+      sticks = true;
+      controller = controllIO.getDevice(i);
+      break;
+    }
+    else if(numSliders >= 4)
+    {
+      //for xbox controllers
+      sliders = true;
       controller = controllIO.getDevice(i);
       break;
     }
   }
-  controller.plug(this, "handleRBPress", ControllIO.WHILE_PRESS, 6);
-  turretStick = controller.getStick(0);
-  moveStick = controller.getStick(1);
-//  boolean caught = false;
-//  try
-//  {
-//    controller = controllIO.getDevice("Controller (Xbox 360 Wireless Receiver for Windows)");
-//  }
-//  catch (Exception e)
-//  {
-//    caught = true;
-//  }
-//  if(caught)
-//  {
-//    controller = controllIO.getDevice("Controller (XBOX 360 For Windows)");
-//  }
-//  controller.plug(this, "handleRBPress", ControllIO.WHILE_PRESS, 5);
-//  turretStick = new ControllStick(controller.getSlider(3), controller.getSlider(2));
-//  moveStick = new ControllStick(controller.getSlider(1), controller.getSlider(0));
+  if(sticks)
+  {
+    controller.plug(this, "handleRBPress", ControllIO.WHILE_PRESS, 6);
+    turretStick = controller.getStick(0);
+    moveStick = controller.getStick(1);
+  }
+  else if(sliders)
+  {
+    controller.plug(this, "handleRBPress", ControllIO.WHILE_PRESS, 5);
+    turretStick = new ControllStick(controller.getSlider(3), controller.getSlider(2));
+    moveStick = new ControllStick(controller.getSlider(1), controller.getSlider(0));    
+  }
 }
 
 /**
@@ -205,17 +210,8 @@ void handleRBPress()
 void draw()
 {
   deltaTime = (float) timer.getElapsedTime();
-  //Get messages from server if available
-//  if(client.available() > 0)
-//  {
-//    receiveMessage();
-//    messagesReceived++;
-//  }
-  
   background(213, 189, 122);
-  
   processUserGameInput(deltaTime);
-  
   for(int i = 0; i < 4; i++)
   {
     if(tanks[i] != null)
@@ -239,50 +235,7 @@ void draw()
     currBullet.update(deltaTime);
     currBullet.draw();
   }  
-  if(millis() - messagesReceivedTimer > 1000)
-  {
-     messagesReceivedTimer = millis();
-     textSize(32);
-     //text(messagesReceived, 10, 10);
-     messagesReceivedPrint = messagesReceived;
-     messagesReceived = 0; 
-  }
-  text(messagesReceivedPrint, 10, 50);
 }
-
-//void receiveMessage()
-//{
-//  String currString = client.readStringUntil('*');
-//  if(currString != null)
-//  {
-//    String[] currMessage = currString.split(",");
-//    if(currMessage[0].equals("move"))
-//    {
-//      int playerNum = int(currMessage[1]);
-//      if(tanks[playerNum - 1] == null)
-//      {
-//        tanks[playerNum - 1] = new ClientTank(this, scaleSize);
-//      }
-//      tanks[playerNum - 1].tankBase.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
-//      tanks[playerNum - 1].tankTurret.setXY(float(currMessage[2]) * scalePosition, float(currMessage[3]) * scalePosition);
-//      tanks[playerNum - 1].tankBase.setRot(float(currMessage[4]));
-//      tanks[playerNum - 1].tankTurret.setRot(float(currMessage[5]));
-//    }
-//    else if(currMessage[0].equals("rotate"))
-//    {
-//      int playerNum = int(currMessage[1]);
-//      tanks[playerNum - 1].tankTurret.setRot(float(currMessage[2]));
-//    }
-//    else if(currMessage[0].equals("hit"))
-//    {
-//      processCollision(currMessage); 
-//    }
-//    else if(currMessage[0].equals("shoot"))
-//    {
-//      createBullet(currMessage);
-//    }
-//  }
-//}
 
 /**
  * Process user input during gameplay
@@ -309,7 +262,7 @@ void processUserGameInput(float deltaTime)
     stopped = false;
     float currMagnitude = min(1.0, sqrt(sq(x) + sq(y)));
     float currDirection = degrees(atan2(y, x));
-    if(abs(prevDirection - currDirection) >= 90.0 && millis() - moveTimer > 15)
+    if(abs(prevDirection - currDirection) >= 90.0 && millis() - moveTimer > 10)
     {
       Network.MoveServerMsg moveMsg = new Network.MoveServerMsg();
       moveMsg.magnitude = currMagnitude;
@@ -319,12 +272,12 @@ void processUserGameInput(float deltaTime)
       prevDirection = currDirection;
       moveTimer = millis();
     }
-    if((abs(prevMagnitude - currMagnitude) > 0.2 || abs(prevDirection - currDirection) > 3.0) && millis() - moveTimer > 80)
+    if((abs(prevMagnitude - currMagnitude) > 0.2 || abs(prevDirection - currDirection) > 3.0) && millis() - moveTimer > 60)
     {
       Network.MoveServerMsg moveMsg = new Network.MoveServerMsg();
       moveMsg.magnitude = currMagnitude;
       moveMsg.direction = currDirection;
-      client.sendTCP(moveMsg);
+      client.sendUDP(moveMsg);
       prevMagnitude = currMagnitude;
       prevDirection = currDirection;
       moveTimer = millis();
@@ -343,11 +296,11 @@ void processUserGameInput(float deltaTime)
   else
   {
     float currRot = degrees(atan2(y, x));
-    if(abs(currRot - prevRot) > 2.0 && millis() - rotateTimer > 40)
+    if(abs(currRot - prevRot) > 2.0 && millis() - rotateTimer > 30)
     {
       Network.RotateServerMsg rotateMsg = new Network.RotateServerMsg();
       rotateMsg.turretRot = currRot;
-      client.sendTCP(rotateMsg);
+      client.sendUDP(rotateMsg);
       prevRot = currRot;
       rotateTimer = millis();
     } 
