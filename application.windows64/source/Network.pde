@@ -21,10 +21,6 @@ static public class Network
     kryo.register(HitBulletMsg.class);
     kryo.register(HitTankMsg.class);
     kryo.register(HitWallMsg.class);
-    kryo.register(HitPowerUpMsg.class);
-    kryo.register(PowerUpResetMsg.class);
-    kryo.register(PowerUpReceivedMsg.class);
-    kryo.register(ChatMsg.class);
   } 
  
   static public class ShootClientMsg
@@ -91,24 +87,6 @@ static public class Network
   {
     int player;
   } 
-  
-  static public class HitPowerUpMsg
-  {
-    int powerUpID;
-  }
-  
-  static public class PowerUpReceivedMsg
-  {
-  }
-  
-  static public class PowerUpResetMsg
-  {
-  }
-  
-  static public class ChatMsg
-  {
-    String message;
-  }
 }
 
 
