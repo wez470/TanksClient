@@ -1,14 +1,18 @@
-import com.esotericsoftware.kryonet.*;
+import com.esotericsoftware.kryonet.*; //networking
 
-import procontroll.*;
-import net.java.games.input.*;
+import procontroll.*; //gamepad input
+import net.java.games.input.*; //gamepad input
 
-import javax.swing.JOptionPane;
+import javax.swing.JOptionPane; //JOptionPane
 
-import sprites.utils.*;
-import sprites.*;
+import sprites.utils.*; //Sprite
+import sprites.*; //Sprite
 
-import java.util.concurrent.*;
+import SimpleOpenNI.*; //Kinect
+import monclubelec.javacvPro.*; //Opencv
+import java.awt.*; //Rectangle
+import java.util.concurrent.*; //ConcurrentHashMap
+import java.util.LinkedList; //LinkedList
 
 Client client;
 ControllIO controllIO;
@@ -16,10 +20,13 @@ ControllDevice controller;
 ControllStick turretStick;
 ControllStick moveStick;
 StopWatch timer;
-ConcurrentHashMap<Integer, Sprite> bullets;
-HashMap<Sprite, Integer> bulletIDs;
+color backgroundColor = color(213, 189, 122);
+ConcurrentHashMap<Integer, Bullet> bullets;
+HashMap<Bullet, Integer> bulletIDs;
 HashMap<Wall, Integer> wallIDs;
 ConcurrentHashMap<Integer, Wall> walls;
+ConcurrentHashMap<Integer, Sprite> powerUps;
+HashMap<Sprite, Integer> powerUpIDs;
 float bulletSpeed;
 float deltaTime;
 float shotTimer = -1000;
@@ -32,11 +39,29 @@ boolean stopped = true;
 float prevRot = 1000.0;
 float prevDirection = 1000.0;
 float prevMagnitude = 1000.0;
-int messagesReceivedTimer = 0;
-int messagesReceived = 0;
-int messagesReceivedPrint = 0;
-int clearTimer = 0;
-
+int controllerUsedTimer = 0;
+SimpleOpenNI cam;
+OpenCV opencv; 
+ImageProcessingThread imgProcThread;
+boolean waiting = true;
+Rectangle[] faceRect;
+int currNumFaces = 0;
+boolean looking = true;
+int imgProcIndex = 20;
+LinkedList<Line> tankTrails = new LinkedList<Line>();
+LinkedList<Line> bulletTrails = new LinkedList<Line>();
+int trailDiam = 20;
+int trailTimer = 0;
+int bulletTrailTimer = 0;
+int powerUpTimer = 0;
+PImage powerUpGrey;
+PImage powerUpRedGrey;
+boolean powerUpTaken = false;
+int powerUpTakenIndex = 0;
+LinkedList<DeadTank> deadTanks = new LinkedList<DeadTank>();
+String lastInput = new String();
+String currentInput = new String();
+boolean inputEnabled = false;
 
 /**
  * Setup the game for play
@@ -46,18 +71,34 @@ void setup()
   size(800, 600);
   //size((int) (screen.height * 4.0 / 3.0), screen.height);
   
-  bullets = new ConcurrentHashMap<Integer, Sprite>();
-  bulletIDs = new HashMap<Sprite, Integer>();
+  cam = new SimpleOpenNI(this); //initialize kinect camera
+  cam.setMirror(true);
+  cam.enableRGB();
+  opencv = new OpenCV(this);
+  opencv.allocate(cam.rgbWidth(), cam.rgbHeight()); //size of image buffer
+  opencv.cascade("C:/opencv/data/haarcascades/", "haarcascade_frontalface_alt_tree.xml"); //initialize detection of face
+  imgProcThread = new ImageProcessingThread();
+  imgProcThread.setPriority(Thread.MIN_PRIORITY);
+  imgProcThread.start();
+
+  
+  bullets = new ConcurrentHashMap<Integer, Bullet>();
+  bulletIDs = new HashMap<Bullet, Integer>();
   
   scalePosition = height / 600.0;
   scaleSize = height / 2400.0;
-  bulletSpeed = 300.0 * scalePosition;
+  bulletSpeed = 50.0 * scalePosition;
   tanks = new ClientTank[4];
   
   timer = new StopWatch();
   
   setupController();
   setupWalls();
+  setupPowerUps();
+  powerUpGrey = loadImage("Images/PowerUpNotLooking.png");
+  powerUpRedGrey = loadImage("Images/PowerUpNotLookingReset.png");
+  PFont font = loadFont("Mangal-Bold-14.vlw");
+  textFont(font);
   
   client = new Client();
   client.start();
@@ -66,7 +107,6 @@ void setup()
   {
     public void received(Connection connection, Object object)
     {
-      messagesReceived++;
       if(object instanceof Network.MoveClientMsg)
       {
         Network.MoveClientMsg moveMsg = (Network.MoveClientMsg) object;
@@ -86,13 +126,22 @@ void setup()
         int playerNum = rotateMsg.player;
         tanks[playerNum - 1].tankTurret.setRot(rotateMsg.turretRot);
       }
-      else if(object instanceof Network.HitBulletMsg || object instanceof Network.HitWallMsg || object instanceof Network.HitTankMsg)
+      else if(object instanceof Network.HitBulletMsg || object instanceof Network.HitWallMsg || object instanceof Network.HitTankMsg || object instanceof Network.HitPowerUpMsg)
       {
         processCollision(object); 
       }
       else if(object instanceof Network.ShootClientMsg)
       {
         createBullet(object);
+      }
+      else if(object instanceof Network.PowerUpResetMsg)
+      {
+        powerUpTaken = false;
+        setupPowerUps();
+      }
+      else if(object instanceof Network.PowerUpReceivedMsg)
+      {
+        powerUpTimer = millis();
       }
     }
   });
@@ -127,15 +176,15 @@ void setupWalls()
   //walls created top to bottom left to right
   float wallsX[] = {0.77 * width, 0.15 * width, 0.23 * width, 0.31 * width, 0.39 * width, 0.61 * width, 0.69 * width,
                     0.77 * width, 0.85 * width, 0.055 * width, 0.15 * width, 0.23 * width, 0.77 * width, 0.85 * width,
-                    0.5 * width, 0.15 * width, 0.23 * width, 0.77 * width, 0.85 * width, 0.945 * width, 0.15 * width,
+                    0.15 * width, 0.23 * width, 0.77 * width, 0.85 * width, 0.945 * width, 0.15 * width,
                     0.23 * width, 0.31 * width, 0.39 * width, 0.61 * width, 0.69 * width, 0.77 * width, 0.85 * width,
                     0.23 * width};
   float wallsY[] = {0.0867 * height, 0.2267 * height, 0.2267 * height, 0.2267 * height, 0.2267 * height, 0.2267 * height,
                     0.2267 * height, 0.2267 * height, 0.2267 * height, 0.3334 * height, 0.3334 * height, 0.3334 * height,
-                    0.3334 * height, 0.3334 * height, 0.5 * height, 0.6667 * height, 0.6667 * height, 0.6667 * height,
+                    0.3334 * height, 0.3334 * height, 0.6667 * height, 0.6667 * height, 0.6667 * height,
                     0.6667 * height, 0.6667 * height, 0.773 * height, 0.773 * height, 0.773 * height, 0.773 * height, 
                     0.773 * height, 0.773 * height, 0.773 * height, 0.773 * height, 0.913 * height};
-  int numWalls = 29;
+  int numWalls = wallsX.length;
   for(int i = 0; i < numWalls; i++)
   {
     Wall wall = new Wall(this, "Images/BlockTiles5Cracked.png", 5, 1, 100);
@@ -144,6 +193,26 @@ void setupWalls()
     wall.setScale(2 * scaleSize);
     walls.put(i + 1, wall);
     wallIDs.put(wall, i + 1);
+  }
+}
+
+/**
+ * Set up the power ups for the game
+ */
+void setupPowerUps()
+{
+  powerUps = new ConcurrentHashMap<Integer, Sprite>();
+  powerUpIDs = new HashMap<Sprite, Integer>();
+  float powerUpsX[] = {0.5};
+  float powerUpsY[] = {0.5};
+  int numPowerUps = powerUpsX.length;
+  for(int i = 0; i < numPowerUps; i++)
+  {
+    Sprite powerUp = new Sprite(this, "Images/PowerUp.png", 1, 1, 100);
+    powerUp.setXY(powerUpsX[i] * width, powerUpsY[i] * height);
+    powerUp.setScale(3.75 * scaleSize);
+    powerUps.put(i + 1, powerUp);
+    powerUpIDs.put(powerUp, i + 1);
   }
 }
 
@@ -196,11 +265,24 @@ void setupController()
  */
 void handleRBPress()
 {
-  if(millis() - shotTimer > 700)
+  controllerUsedTimer = millis();
+  if(millis() - powerUpTimer < 10000)
   {
-    Network.ShootServerMsg shootMsg = new Network.ShootServerMsg();
-    client.sendTCP(shootMsg);
-    shotTimer = millis();
+    if(millis() - shotTimer > 350)
+    {
+      Network.ShootServerMsg shootMsg = new Network.ShootServerMsg();
+      client.sendTCP(shootMsg);
+      shotTimer = millis();      
+    }
+  }
+  else
+  {
+    if(millis() - shotTimer > 700)
+    {
+      Network.ShootServerMsg shootMsg = new Network.ShootServerMsg();
+      client.sendTCP(shootMsg);
+      shotTimer = millis();
+    }
   }
 }
 
@@ -210,8 +292,35 @@ void handleRBPress()
 void draw()
 {
   deltaTime = (float) timer.getElapsedTime();
-  background(213, 189, 122);
+  background(backgroundColor);
   processUserGameInput(deltaTime);
+  for(Line currLine: tankTrails)
+  {
+    currLine.drawLine();
+  }
+  for(Line currLine: bulletTrails)
+  {
+    currLine.drawLine();
+  }
+  for(Sprite currPowerUp: powerUps.values())
+  {
+    currPowerUp.draw();
+  }
+  if(powerUpTaken && powerUpTakenIndex > 0)
+  {
+    image(powerUpGrey, 0.5 * width, 0.5 * height, powerUpGrey.width * 3.75 * scaleSize, powerUpGrey.height * 3.75 * scaleSize);
+  }
+  else if(!powerUpTaken && powerUpTakenIndex > 0)
+  {
+    image(powerUpRedGrey, 0.5 * width, 0.5 * height, powerUpRedGrey.width * 3.75 * scaleSize, powerUpRedGrey.height * 3.75 * scaleSize);
+  }
+  synchronized(deadTanks)
+  {
+    for(DeadTank deadTank: deadTanks)
+    {
+      deadTank.draw();
+    }
+  }
   for(int i = 0; i < 4; i++)
   {
     if(tanks[i] != null)
@@ -230,11 +339,169 @@ void draw()
       tanks[i].drawTurret();
     }
   }
-  for(Sprite currBullet: bullets.values())
+  for(Bullet currBullet: bullets.values())
   {
-    currBullet.update(deltaTime);
-    currBullet.draw();
+    currBullet.bullet.update(deltaTime);
+    currBullet.bullet.draw();
   }  
+  if(imgProcIndex >= 20 && waiting)
+  {
+    synchronized(imgProcThread)
+    {
+      imgProcThread.notify();
+    }
+    imgProcIndex = 0;
+  }
+  else
+  {
+    imgProcIndex++;
+  }
+  drawText();
+  attentionCalculation();
+}
+
+/**
+ * Draws the chat text to the screen
+ */
+void drawText()
+{
+  fill(0);
+  textSize(20);
+  textAlign(RIGHT);
+  text(lastInput, width - 5, height - 5);
+  textSize(16);
+  textAlign(LEFT);
+  text(currentInput, 3, 14);
+}
+
+/**
+ * Method to change what is being drawn depending on if the user is paying attention or not
+ */
+void attentionCalculation()
+{
+  if(getCurrNumFaces() > 0)
+  {
+    looking = true;
+  }
+  else
+  {
+    looking = false;
+  }
+  if(!looking)
+  {
+    if(millis() - trailTimer >= 0)
+    {
+      //if there are no current trails, set previous positions to current 
+      //so that we don't draw from old points to new points
+      if(tankTrails.size() < 1 )
+      {
+        for(int i = 0; i < 4; i++)
+        {
+          if(tanks[i] != null)
+          {
+            tanks[i].prevX = tanks[i].tankBase.getX();
+            tanks[i].prevY = tanks[i].tankBase.getY(); 
+          }
+        }
+      }
+      //if there are no current trails, set previous positions to current 
+      //so that we don't draw from old points to new points
+      if(bulletTrails.size() < 1)
+      {
+        for(Bullet currBullet: bullets.values())
+        {
+          currBullet.prevX = (int)currBullet.bullet.getX();
+          currBullet.prevY = (int)currBullet.bullet.getY();
+        }
+      }
+      //since the user isn't looking, add lines to show where the tanks are
+      for(int i = 0; i < 4; i++)
+      {
+        if(tanks[i] != null)
+        {
+          tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
+          tanks[i].prevX = tanks[i].tankBase.getX();
+          tanks[i].prevY = tanks[i].tankBase.getY();
+        }
+      }
+      //since the user isn't looking, add lines to show where the bullets are
+      for(Bullet currBullet: bullets.values())
+      {
+        bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
+        currBullet.prevX = (int)currBullet.bullet.getX();
+        currBullet.prevY = (int)currBullet.bullet.getY();
+      }
+      trailTimer = millis();
+    }
+  }
+  else //the user is paying attention
+  {
+    //equation for finding how fast to remove old images.  Exponential equation so older images get removed faster
+    //Doesn't get below 5 so that the tail will continue to be removed when it gets short 
+    //Equation:   tankTrails.size() = (removeNumber ^ 3) / 2
+    int removeNumber = max(15, (int) pow(((float) tankTrails.size() * 3.0), (1.0 / 2.0)));
+    //if there are tank trails, keep adding trails so that there is a seemless transition to current gameplay
+    if(millis() - trailTimer > 0 && tankTrails.size() > removeNumber + 1)
+    {
+      for(int i = 0; i < 4; i++)
+      {
+        if(tanks[i] != null)
+        {
+          tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
+          tanks[i].prevX = tanks[i].tankBase.getX();
+          tanks[i].prevY = tanks[i].tankBase.getY();
+        }
+      }
+      trailTimer = millis();
+    }
+    //if there are bullet trails, keeping adding trails so that there is a seemless transition to current gameplay
+    if(bulletTrails.size() >  removeNumber + 1)
+    {
+      for(Bullet currBullet: bullets.values())
+      {
+        bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
+        currBullet.prevX = (int)currBullet.bullet.getX();
+        currBullet.prevY = (int)currBullet.bullet.getY();
+      }
+    }
+    //remove part of tank trails
+    for(int i = 0; i < min(4 * removeNumber * scaleSize, tankTrails.size()); i++)
+    {
+      tankTrails.get(i).opacity -= 30;
+      if(tankTrails.get(i).opacity <= 30)
+      {
+        tankTrails.remove(i);
+        powerUpTakenIndex--;
+        synchronized(deadTanks)
+        {
+          ListIterator<DeadTank> deadTanksIt = deadTanks.listIterator(0);
+          while(deadTanksIt.hasNext())
+          {
+            DeadTank currDeadTank = deadTanksIt.next();
+            currDeadTank.index--;
+            if(currDeadTank.index <= 0)
+            {
+              deadTanksIt.remove();
+            }
+            else
+            {
+              deadTanksIt.set(currDeadTank);
+            }
+          }
+        }
+      }
+    }
+    //remove faster than tank trails
+    for(int i = 0; i < min(8 * removeNumber * scaleSize, bulletTrails.size()); i++)
+    {
+      bulletTrails.get(i).opacity -= 30;
+      if(bulletTrails.get(i).opacity <= 30)
+      {
+        bulletTrails.remove(i);
+      }
+    }
+    bulletTrailTimer = millis();
+  }
 }
 
 /**
@@ -259,6 +526,7 @@ void processUserGameInput(float deltaTime)
   }
   else
   {
+    controllerUsedTimer = millis();
     stopped = false;
     float currMagnitude = min(1.0, sqrt(sq(x) + sq(y)));
     float currDirection = degrees(atan2(y, x));
@@ -295,6 +563,7 @@ void processUserGameInput(float deltaTime)
   }
   else
   {
+    controllerUsedTimer = millis();
     float currRot = degrees(atan2(y, x));
     if(abs(currRot - prevRot) > 2.0 && millis() - rotateTimer > 30)
     {
@@ -315,14 +584,14 @@ void processCollision(Object object)
   if(object instanceof Network.HitBulletMsg)
   {
     Network.HitBulletMsg hitMsg = (Network.HitBulletMsg) object;
-    Sprite hitBullet = bullets.get(hitMsg.bulletID);
+    Bullet hitBullet = bullets.get(hitMsg.bulletID);
     bulletIDs.remove(hitBullet);
     bullets.remove(hitMsg.bulletID);
   }
   else if(object instanceof Network.HitWallMsg)
   {
     Network.HitWallMsg hitMsg = (Network.HitWallMsg) object;
-    Sprite hitBullet = bullets.get(hitMsg.bulletID);
+    Bullet hitBullet = bullets.get(hitMsg.bulletID);
     Wall hitWall = walls.get(hitMsg.wallID);
     hitWall.hitCount++;
     if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
@@ -340,10 +609,25 @@ void processCollision(Object object)
   else if(object instanceof Network.HitTankMsg)
   {
     Network.HitTankMsg hitMsg = (Network.HitTankMsg) object;
-    //tanks[hitMsg.player - 1] = null;
-    Sprite hitBullet = bullets.get(hitMsg.bulletID);
+    if(!looking)
+    {
+      synchronized(deadTanks)
+      {
+        deadTanks.add(new DeadTank(tanks[hitMsg.player - 1].tankBase.getX(), tanks[hitMsg.player - 1].tankBase.getY(), tankTrails.size()));
+      }
+    }
+    Bullet hitBullet = bullets.get(hitMsg.bulletID);
     bulletIDs.remove(hitBullet);
     bullets.remove(hitMsg.bulletID);
+  }
+  else if(object instanceof Network.HitPowerUpMsg)
+  {
+    Network.HitPowerUpMsg pUpTakenMsg = (Network.HitPowerUpMsg) object;
+    Sprite powerUp = powerUps.get(pUpTakenMsg.powerUpID);
+    powerUps.remove(pUpTakenMsg.powerUpID);
+    powerUpIDs.remove(powerUp);   
+    powerUpTaken = true;
+    powerUpTakenIndex = tankTrails.size();
   }
 }
 
@@ -359,9 +643,50 @@ void createBullet(Object object)
   bullet.setSpeed(bulletSpeed, shootMsg.heading);
   bullet.setXY(shootMsg.x * scalePosition, shootMsg.y * scalePosition);
   bullet.setScale(scaleSize);
-  bullets.put(shootMsg.bulletID, bullet);
-  bulletIDs.put(bullet, shootMsg.bulletID);
+  Bullet b = new Bullet(bullet);
+  bullets.put(shootMsg.bulletID, b);
+  bulletIDs.put(b, shootMsg.bulletID);
 }
+
+synchronized int getCurrNumFaces()
+{
+  return currNumFaces;
+}
+  
+  
+synchronized void setCurrNumFaces(int faces)
+{
+  currNumFaces = faces;
+}
+
+void keyTyped()
+{
+  if(key == '~' || key == '`')
+  {
+    inputEnabled = !inputEnabled;
+    if(!inputEnabled)
+    {
+      currentInput = "";
+    }
+    return;
+  } 
+  if(inputEnabled)
+  {
+    if(key == ENTER)
+    {
+      lastInput = currentInput = currentInput + key;
+      currentInput = "";
+    }
+    else if(key == BACKSPACE && currentInput.length() > 0)
+    {
+      currentInput = currentInput.substring(0, currentInput.length() - 1);
+    }
+    else
+    {
+      currentInput = currentInput + key;
+    }
+  }
+} 
 
 void exit()
 {
