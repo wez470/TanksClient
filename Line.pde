@@ -20,9 +20,8 @@ class Line
     opacity = 255;
   }
 
-  public void drawLine()
+  public void draw()
   {
-    //stroke(40, 150, 30, opacity);
     stroke(lineColor, opacity);
     strokeWeight(strokeWidth);
     line(x1, y1, x2, y2);

@@ -10,6 +10,7 @@ public class ClientTank
   public Sprite tankTurret;
   public double prevX;
   public double prevY;
+  public HealthBar health;
   
   public ClientTank(PApplet applet, float scaleSize)
   {
@@ -19,6 +20,7 @@ public class ClientTank
     tankBase.setScale(scaleSize);
     prevX = 0;
     prevY = 0;
+    health = new HealthBar((int)(tankBase.getX() - 100 * scalePosition), (int)(tankBase.getY() - 100 * scalePosition));
   }
   
   public void drawBase()
@@ -29,5 +31,10 @@ public class ClientTank
   public void drawTurret()
   {
     tankTurret.draw();
+  }
+  
+  public void drawHealth()
+  {
+    health.draw();
   }
 }

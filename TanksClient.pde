@@ -118,6 +118,8 @@ void setup()
         }
         tanks[playerNum - 1].tankBase.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
         tanks[playerNum - 1].tankTurret.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
+        tanks[playerNum - 1].health.x = (int)(moveMsg.x * scalePosition);
+        tanks[playerNum - 1].health.y = (int)(moveMsg.y * scalePosition);
         tanks[playerNum - 1].tankBase.setRot(moveMsg.baseRot);
         tanks[playerNum - 1].tankTurret.setRot(moveMsg.turretRot);
       }
@@ -301,11 +303,11 @@ void draw()
   processUserGameInput(deltaTime);
   for(Line currLine: tankTrails)
   {
-    currLine.drawLine();
+    currLine.draw();
   }
   for(Line currLine: bulletTrails)
   {
-    currLine.drawLine();
+    currLine.draw();
   }
   for(Sprite currPowerUp: powerUps.values())
   {
@@ -341,6 +343,13 @@ void draw()
   {
     if(tanks[i] != null)
     {
+      tanks[i].drawHealth();
+    }
+  }
+  for(int i = 0; i < 4; i++)
+  {
+    if(tanks[i] != null)
+    {
       tanks[i].drawTurret();
     }
   }
@@ -371,12 +380,13 @@ void draw()
 void drawText()
 {
   fill(0);
-  textSize(16);
+  textSize(64 * scaleSize);
   textAlign(LEFT);
-  text(currentInput, 3, 14);
-  textSize(20);
+  //print text buffered from edge
+  text(currentInput, 12 * scaleSize, 56 * scaleSize);
+  //textSize(80 * scaleSize);
   textAlign(RIGHT);
-  text(networkMessage, width - 5, height - 5);
+  text(networkMessage, width - 20 * scaleSize, height - 20 * scaleSize);
 }
 
 /**
@@ -646,6 +656,7 @@ void processCollision(Object object)
         deadTanks.add(new DeadTank(tanks[hitMsg.player - 1].tankBase.getX(), tanks[hitMsg.player - 1].tankBase.getY(), tankTrails.size()));
       }
     }
+    tanks[hitMsg.player - 1].health.percent -= 20;
     Bullet hitBullet = bullets.get(hitMsg.bulletID);
     bulletIDs.remove(hitBullet);
     bullets.remove(hitMsg.bulletID);
@@ -714,7 +725,7 @@ void keyTyped()
     {
       currentInput = currentInput.substring(0, currentInput.length() - 1);
     }
-    else
+    else if (textWidth(currentInput) < width - 400 * scaleSize)
     {
       currentInput = currentInput + key;
     }
