@@ -11,6 +11,7 @@ public class ClientTank
   public double prevX;
   public double prevY;
   public HealthBar health;
+  public int lastSeenHealth;
   
   public ClientTank(PApplet applet, float scaleSize)
   {
@@ -21,6 +22,7 @@ public class ClientTank
     prevX = 0;
     prevY = 0;
     health = new HealthBar((int)(tankBase.getX() - 100 * scalePosition), (int)(tankBase.getY() - 100 * scalePosition));
+    lastSeenHealth = 100;
   }
   
   public void drawBase()
@@ -35,6 +37,6 @@ public class ClientTank
   
   public void drawHealth()
   {
-    health.draw();
+    health.draw(lastSeenHealth);
   }
 }

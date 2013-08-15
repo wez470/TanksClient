@@ -60,7 +60,7 @@ boolean powerUpTaken = false;
 int powerUpTakenIndex = 0;
 LinkedList<DeadTank> deadTanks = new LinkedList<DeadTank>();
 LinkedList<Network.HitWallMsg> missedWallHits = new LinkedList<Network.HitWallMsg>();
-String networkMessage = "";
+LinkedList<String> networkMessages = new LinkedList<String>();
 String currentInput = new String();
 boolean inputEnabled = false;
 
@@ -148,7 +148,7 @@ void setup()
       }
       else if(object instanceof Network.ChatMsg)
       {
-          networkMessage = ((Network.ChatMsg) object).message;
+          networkMessages.add(((Network.ChatMsg) object).message);
       }
     }
   });
@@ -379,6 +379,12 @@ void draw()
  */
 void drawText()
 {
+  if(inputEnabled)
+  {
+    fill(0, 0, 0, 100);
+    stroke(0, 0, 0, 100);
+    rect(5 *  scaleSize, 5 * scaleSize, width - 340 * scaleSize, 60 * scaleSize);
+  }
   fill(0);
   textSize(64 * scaleSize);
   textAlign(LEFT);
@@ -386,7 +392,12 @@ void drawText()
   text(currentInput, 12 * scaleSize, 56 * scaleSize);
   //textSize(80 * scaleSize);
   textAlign(RIGHT);
-  text(networkMessage, width - 20 * scaleSize, height - 20 * scaleSize);
+  int i = networkMessages.size() - 1;
+  for(String message: networkMessages)
+  {
+    text(message, width - 20 * scaleSize, height - 20 * scaleSize - 80 * i * scaleSize);
+    i--;
+  }
 }
 
 /**
@@ -534,6 +545,13 @@ void attentionCalculation()
       }
       wallHitsIt.remove();
     }
+    for(int i = 0; i < 4; i++)
+    {
+      if(tanks[i] != null)
+      {
+        tanks[i].lastSeenHealth = tanks[i].health.percent;
+      }
+    }
   }
 }
 
@@ -649,14 +667,27 @@ void processCollision(Object object)
   else if(object instanceof Network.HitTankMsg)
   {
     Network.HitTankMsg hitMsg = (Network.HitTankMsg) object;
+    tanks[hitMsg.player - 1].health.percent -= 20;
     if(!looking)
     {
-      synchronized(deadTanks)
+      if(tanks[hitMsg.player - 1].health.percent <= 0)
       {
-        deadTanks.add(new DeadTank(tanks[hitMsg.player - 1].tankBase.getX(), tanks[hitMsg.player - 1].tankBase.getY(), tankTrails.size()));
+        synchronized(deadTanks)
+        {
+          deadTanks.add(new DeadTank(tanks[hitMsg.player - 1].tankBase.getX(), tanks[hitMsg.player - 1].tankBase.getY(), tankTrails.size()));
+        }
+        tanks[hitMsg.player - 1].health.percent = 100;
       }
     }
-    tanks[hitMsg.player - 1].health.percent -= 20;
+    else //looking
+    {
+      tanks[hitMsg.player - 1].lastSeenHealth = tanks[hitMsg.player - 1].health.percent;
+      if(tanks[hitMsg.player - 1].health.percent <= 0)
+      {
+        tanks[hitMsg.player - 1].health.percent = 100;
+        tanks[hitMsg.player - 1].lastSeenHealth = 100;
+      }
+    }
     Bullet hitBullet = bullets.get(hitMsg.bulletID);
     bulletIDs.remove(hitBullet);
     bullets.remove(hitMsg.bulletID);
