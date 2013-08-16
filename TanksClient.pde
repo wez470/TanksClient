@@ -47,6 +47,7 @@ boolean waiting = true;
 Rectangle[] faceRect;
 int currNumFaces = 0;
 boolean looking = true;
+int timeSinceLooking = 0;
 int imgProcIndex = 20;
 LinkedList<Line> tankTrails = new LinkedList<Line>();
 LinkedList<Line> bulletTrails = new LinkedList<Line>();
@@ -60,7 +61,7 @@ boolean powerUpTaken = false;
 int powerUpTakenIndex = 0;
 LinkedList<DeadTank> deadTanks = new LinkedList<DeadTank>();
 LinkedList<Network.HitWallMsg> missedWallHits = new LinkedList<Network.HitWallMsg>();
-LinkedList<String> networkMessages = new LinkedList<String>();
+LinkedList<Message> networkMessages = new LinkedList<Message>();
 String currentInput = new String();
 boolean inputEnabled = false;
 
@@ -148,7 +149,7 @@ void setup()
       }
       else if(object instanceof Network.ChatMsg)
       {
-          networkMessages.add(((Network.ChatMsg) object).message);
+        networkMessages.add(new Message(((Network.ChatMsg) object).message));
       }
     }
   });
@@ -353,6 +354,8 @@ void draw()
       tanks[i].drawTurret();
     }
   }
+  attentionUpdate();
+  drawText();
   for(Bullet currBullet: bullets.values())
   {
     currBullet.bullet.update(deltaTime);
@@ -370,8 +373,6 @@ void draw()
   {
     imgProcIndex++;
   }
-  drawText();
-  attentionCalculation();
 }
 
 /**
@@ -390,12 +391,19 @@ void drawText()
   textAlign(LEFT);
   //print text buffered from edge
   text(currentInput, 12 * scaleSize, 56 * scaleSize);
-  //textSize(80 * scaleSize);
-  textAlign(RIGHT);
   int i = networkMessages.size() - 1;
-  for(String message: networkMessages)
+  ListIterator<Message> messagesIt = networkMessages.listIterator();
+  while(messagesIt.hasNext())
   {
-    text(message, width - 20 * scaleSize, height - 20 * scaleSize - 80 * i * scaleSize);
+    Message m = messagesIt.next();
+    if(m.remove)
+    {
+      messagesIt.remove();
+    }
+    else
+    {
+      m.draw(i);
+    }
     i--;
   }
 }
@@ -403,9 +411,9 @@ void drawText()
 /**
  * Method to change what is being drawn depending on if the user is paying attention or not
  */
-void attentionCalculation()
+void attentionUpdate()
 {
-  if(getCurrNumFaces() > 0)
+  if(getCurrNumFaces() > 0/*(getCurrNumFaces() > 0 || millis() - controllerUsedTimer < 1000) && millis() - controllerUsedTimer < 15000*/)
   {
     looking = true;
   }
@@ -415,142 +423,183 @@ void attentionCalculation()
   }
   if(!looking)
   {
-    if(millis() - trailTimer >= 0)
-    {
-      //if there are no current trails, set previous positions to current 
-      //so that we don't draw from old points to new points
-      if(tankTrails.size() < 1 )
-      {
-        for(int i = 0; i < 4; i++)
-        {
-          if(tanks[i] != null)
-          {
-            tanks[i].prevX = tanks[i].tankBase.getX();
-            tanks[i].prevY = tanks[i].tankBase.getY(); 
-          }
-        }
-      }
-      //if there are no current trails, set previous positions to current 
-      //so that we don't draw from old points to new points
-      if(bulletTrails.size() < 1)
-      {
-        for(Bullet currBullet: bullets.values())
-        {
-          currBullet.prevX = (int)currBullet.bullet.getX();
-          currBullet.prevY = (int)currBullet.bullet.getY();
-        }
-      }
-      //since the user isn't looking, add lines to show where the tanks are
-      for(int i = 0; i < 4; i++)
-      {
-        if(tanks[i] != null)
-        {
-          tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
-          tanks[i].prevX = tanks[i].tankBase.getX();
-          tanks[i].prevY = tanks[i].tankBase.getY();
-        }
-      }
-      //since the user isn't looking, add lines to show where the bullets are
-      for(Bullet currBullet: bullets.values())
-      {
-        bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
-        currBullet.prevX = (int)currBullet.bullet.getX();
-        currBullet.prevY = (int)currBullet.bullet.getY();
-      }
-      trailTimer = millis();
-    }
+    notLookingTasks();
   }
   else //the user is paying attention
   {
-    //equation for finding how fast to remove old images.  Exponential equation so older images get removed faster
-    //Doesn't get below 5 so that the tail will continue to be removed when it gets short 
-    //Equation:   tankTrails.size() = (removeNumber ^ 3) / 2
-    int removeNumber = max(15, (int) pow(((float) tankTrails.size() * 3.0), (1.0 / 2.0)));
-    //if there are tank trails, keep adding trails so that there is a seemless transition to current gameplay
-    if(millis() - trailTimer > 0 && tankTrails.size() > removeNumber + 1)
+    lookingTasks();
+  }
+}
+
+/**
+ * Things that need to be done by the program when the user is not looking
+ */
+void notLookingTasks()
+{
+  timeSinceLooking = millis();
+  if(millis() - trailTimer >= 0)
+  {
+    //if there are no current trails, set previous positions to current 
+    //so that we don't draw from old points to new points
+    if(tankTrails.size() < 1 )
     {
       for(int i = 0; i < 4; i++)
       {
         if(tanks[i] != null)
         {
-          tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
           tanks[i].prevX = tanks[i].tankBase.getX();
-          tanks[i].prevY = tanks[i].tankBase.getY();
+          tanks[i].prevY = tanks[i].tankBase.getY(); 
         }
       }
-      trailTimer = millis();
     }
-    //if there are bullet trails, keeping adding trails so that there is a seemless transition to current gameplay
-    if(bulletTrails.size() >  removeNumber + 1)
+    //if there are no current trails, set previous positions to current 
+    //so that we don't draw from old points to new points
+    if(bulletTrails.size() < 1)
     {
       for(Bullet currBullet: bullets.values())
       {
-        bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
         currBullet.prevX = (int)currBullet.bullet.getX();
         currBullet.prevY = (int)currBullet.bullet.getY();
       }
     }
-    //remove part of tank trails
-    for(int i = 0; i < min(4 * removeNumber * scaleSize, tankTrails.size()); i++)
+    //since the user isn't looking, add lines to show where the tanks are
+    for(int i = 0; i < 4; i++)
     {
-      tankTrails.get(i).opacity -= 30;
-      if(tankTrails.get(i).opacity <= 30)
+      if(tanks[i] != null)
       {
-        tankTrails.remove(i);
-        powerUpTakenIndex--;
-        synchronized(deadTanks)
+        tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
+        tanks[i].prevX = tanks[i].tankBase.getX();
+        tanks[i].prevY = tanks[i].tankBase.getY();
+      }
+    }
+    //since the user isn't looking, add lines to show where the bullets are
+    for(Bullet currBullet: bullets.values())
+    {
+      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
+      currBullet.prevX = (int)currBullet.bullet.getX();
+      currBullet.prevY = (int)currBullet.bullet.getY();
+    }
+    trailTimer = millis();
+    while(networkMessages.size() > 30)
+    {
+      networkMessages.removeFirst();
+    }
+    if(networkMessages.size() > 5)
+    {
+      for(Message m: networkMessages)
+      {
+        m.visibleLimit = 1000;
+        m.timeVisible = millis();
+      }
+    }
+  }
+} 
+
+/**
+ * Tasks the program needs to do when the user is looking
+ */
+void lookingTasks()
+{
+  //equation for finding how fast to remove old images.  Exponential equation so older images get removed faster
+  //Doesn't get below 5 so that the tail will continue to be removed when it gets short 
+  //Equation:   tankTrails.size() = (removeNumber ^ 3) / 2
+  int removeNumber = max(15, (int) pow(((float) tankTrails.size() * 3.0), (1.0 / 2.0)));
+  //if there are tank trails, keep adding trails so that there is a seemless transition to current gameplay
+  if(millis() - trailTimer > 0 && tankTrails.size() > removeNumber + 1)
+  {
+    for(int i = 0; i < 4; i++)
+    {
+      if(tanks[i] != null)
+      {
+        tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
+        tanks[i].prevX = tanks[i].tankBase.getX();
+        tanks[i].prevY = tanks[i].tankBase.getY();
+      }
+    }
+    trailTimer = millis();
+  }
+  //if there are bullet trails, keeping adding trails so that there is a seemless transition to current gameplay
+  if(bulletTrails.size() >  removeNumber + 1)
+  {
+    for(Bullet currBullet: bullets.values())
+    {
+      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
+      currBullet.prevX = (int)currBullet.bullet.getX();
+      currBullet.prevY = (int)currBullet.bullet.getY();
+    }
+  }
+  //remove part of tank trails
+  for(int i = 0; i < min(4 * removeNumber * scaleSize, tankTrails.size()); i++)
+  {
+    tankTrails.get(i).opacity -= 30;
+    if(tankTrails.get(i).opacity <= 30)
+    {
+      tankTrails.remove(i);
+      powerUpTakenIndex--;
+      synchronized(deadTanks)
+      {
+        ListIterator<DeadTank> deadTanksIt = deadTanks.listIterator(0);
+        while(deadTanksIt.hasNext())
         {
-          ListIterator<DeadTank> deadTanksIt = deadTanks.listIterator(0);
-          while(deadTanksIt.hasNext())
+          DeadTank currDeadTank = deadTanksIt.next();
+          currDeadTank.index--;
+          if(currDeadTank.index <= 0)
           {
-            DeadTank currDeadTank = deadTanksIt.next();
-            currDeadTank.index--;
-            if(currDeadTank.index <= 0)
-            {
-              deadTanksIt.remove();
-            }
-            else
-            {
-              deadTanksIt.set(currDeadTank);
-            }
+            deadTanksIt.remove();
+          }
+          else
+          {
+            deadTanksIt.set(currDeadTank);
           }
         }
       }
     }
-    //remove faster than tank trails
-    for(int i = 0; i < min(8 * removeNumber * scaleSize, bulletTrails.size()); i++)
+  }
+  //remove faster than tank trails
+  for(int i = 0; i < min(8 * removeNumber * scaleSize, bulletTrails.size()); i++)
+  {
+    bulletTrails.get(i).opacity -= 30;
+    if(bulletTrails.get(i).opacity <= 30)
     {
-      bulletTrails.get(i).opacity -= 30;
-      if(bulletTrails.get(i).opacity <= 30)
-      {
-        bulletTrails.remove(i);
-      }
+      bulletTrails.remove(i);
     }
-    bulletTrailTimer = millis();
-    //deteriorate all walls that were hit when the user was not looking
-    ListIterator<Network.HitWallMsg> wallHitsIt = missedWallHits.listIterator(0);
-    while(wallHitsIt.hasNext())
+  }
+  bulletTrailTimer = millis();
+  //deteriorate all walls that were hit when the user was not looking
+  ListIterator<Network.HitWallMsg> wallHitsIt = missedWallHits.listIterator(0);
+  while(wallHitsIt.hasNext())
+  {
+    Network.HitWallMsg hitMsg = wallHitsIt.next();
+    Wall hitWall = walls.get(hitMsg.wallID);
+    hitWall.hitCount++;
+    if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
     {
-      Network.HitWallMsg hitMsg = wallHitsIt.next();
-      Wall hitWall = walls.get(hitMsg.wallID);
-      hitWall.hitCount++;
-      if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
-      {
-        hitWall.setFrame(hitWall.getFrame() + 1);
-      }
-      if(hitWall.hitCount >= 10)
-      {
-        wallIDs.remove(hitWall);
-        walls.remove(hitMsg.wallID);
-      }
-      wallHitsIt.remove();
+      hitWall.setFrame(hitWall.getFrame() + 1);
     }
+    if(hitWall.hitCount >= 10)
+    {
+      wallIDs.remove(hitWall);
+      walls.remove(hitMsg.wallID);
+    }
+    wallHitsIt.remove();
+  }
+  if(millis() - timeSinceLooking > 5000)
+  {
     for(int i = 0; i < 4; i++)
     {
       if(tanks[i] != null)
       {
         tanks[i].lastSeenHealth = tanks[i].health.percent;
       }
+    }
+  }
+  ListIterator<Message> messageIt = networkMessages.listIterator();
+  while(messageIt.hasNext())
+  {
+    Message m = messageIt.next();
+    if(m.visibleLimit != 1000.0 && networkMessages.size() > 5)
+    {
+      messageIt.remove();
     }
   }
 }
