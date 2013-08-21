@@ -21,6 +21,8 @@ ControllStick turretStick;
 ControllStick moveStick;
 StopWatch timer;
 color backgroundColor = color(213, 189, 122);
+color[] tankColors = new color[]{color(40, 150, 30), color(220, 150, 30), color(165, 50, 50), color(67, 90, 229)};
+color[] tankBackgroundColors = new color[]{color(25, 85, 20, 100), color(145, 100, 25, 100), color(95, 25, 25, 100), color(20, 30, 100, 100)};
 ConcurrentHashMap<Integer, Bullet> bullets;
 HashMap<Bullet, Integer> bulletIDs;
 HashMap<Wall, Integer> wallIDs;
@@ -35,6 +37,7 @@ int rotateTimer = -20;
 float scaleSize; 
 float scalePosition;
 ClientTank[] tanks;
+int numPlayers = 0;
 boolean stopped = true;
 float prevRot = 1000.0;
 float prevDirection = 1000.0;
@@ -47,6 +50,7 @@ boolean waiting = true;
 Rectangle[] faceRect;
 int currNumFaces = 0;
 boolean looking = true;
+int timeSinceNotLooking = 0;
 int timeSinceLooking = 0;
 int imgProcIndex = 20;
 LinkedList<Line> tankTrails = new LinkedList<Line>();
@@ -64,6 +68,7 @@ LinkedList<Network.HitWallMsg> missedWallHits = new LinkedList<Network.HitWallMs
 LinkedList<Message> networkMessages = new LinkedList<Message>();
 String currentInput = new String();
 boolean inputEnabled = false;
+boolean drawCircles = false;
 
 /**
  * Setup the game for play
@@ -82,7 +87,6 @@ void setup()
   imgProcThread = new ImageProcessingThread();
   imgProcThread.setPriority(Thread.MIN_PRIORITY);
   imgProcThread.start();
-
   
   bullets = new ConcurrentHashMap<Integer, Bullet>();
   bulletIDs = new HashMap<Bullet, Integer>();
@@ -97,6 +101,7 @@ void setup()
   setupController();
   setupWalls();
   setupPowerUps();
+
   powerUpGrey = loadImage("Images/PowerUpNotLooking.png");
   powerUpRedGrey = loadImage("Images/PowerUpNotLookingReset.png");
   PFont font = loadFont("Mangal-Bold-14.vlw");
@@ -111,18 +116,7 @@ void setup()
     {
       if(object instanceof Network.MoveClientMsg)
       {
-        Network.MoveClientMsg moveMsg = (Network.MoveClientMsg) object;
-        int playerNum = moveMsg.player;
-        if(tanks[playerNum - 1] == null)
-        {
-          tanks[playerNum - 1] = newTank();
-        }
-        tanks[playerNum - 1].tankBase.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
-        tanks[playerNum - 1].tankTurret.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
-        tanks[playerNum - 1].health.x = (int)(moveMsg.x * scalePosition);
-        tanks[playerNum - 1].health.y = (int)(moveMsg.y * scalePosition);
-        tanks[playerNum - 1].tankBase.setRot(moveMsg.baseRot);
-        tanks[playerNum - 1].tankTurret.setRot(moveMsg.turretRot);
+        processMoveMessage((Network.MoveClientMsg) object);
       }
       else if(object instanceof Network.RotateClientMsg)
       {
@@ -151,6 +145,10 @@ void setup()
       {
         networkMessages.add(new Message(((Network.ChatMsg) object).message));
       }
+      else if(object instanceof Network.UpdateClientMsg)
+      {
+        processUpdateClientMsg((Network.UpdateClientMsg) object);
+      }
     }
   });
   String inputIP = JOptionPane.showInputDialog(this, "Enter the IP address to connect to");
@@ -169,9 +167,9 @@ void setup()
  * This method is made for the purpose of accessing "this" (the outer class) from
  * inner classes.
  */
-ClientTank newTank()
+ClientTank newTank(int playerNum)
 {
-   return new ClientTank(this, scaleSize);
+   return new ClientTank(this, scaleSize, playerNum);
 }
 
 /**
@@ -295,6 +293,73 @@ void handleRBPress()
 }
 
 /**
+ * Method for processing MoveClientMsgs
+ * @param moveMsg: the move message to be processed
+ */
+void processMoveMessage(Network.MoveClientMsg moveMsg)
+{
+  int playerNum = moveMsg.player;
+  if(tanks[playerNum - 1] == null)
+  {
+    tanks[playerNum - 1] = newTank(playerNum);
+    numPlayers++;
+  }
+  tanks[playerNum - 1].tankBase.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
+  tanks[playerNum - 1].tankTurret.setXY(moveMsg.x * scalePosition, moveMsg.y * scalePosition);
+  tanks[playerNum - 1].health.x = (int)(moveMsg.x * scalePosition);
+  tanks[playerNum - 1].health.y = (int)(moveMsg.y * scalePosition);
+  tanks[playerNum - 1].tankBase.setRot(moveMsg.baseRot);
+  tanks[playerNum - 1].tankTurret.setRot(moveMsg.turretRot);
+}
+
+/**
+ * Method to process UpdateClientMsgs
+ * @param updateMsg: the update message to be processed
+ */
+void processUpdateClientMsg(Network.UpdateClientMsg updateMsg)
+{
+  //update player positions
+  for(Network.MoveClientMsg currMoveMsg: updateMsg.playerPositions)
+  {
+    processMoveMessage(currMoveMsg);
+  }
+  //create all bullets
+  for(Network.ShootClientMsg currShootMsg: updateMsg.bullets)
+  {
+    createBullet(currShootMsg);
+  }
+  //update power up
+  powerUpTaken = updateMsg.powerUpTaken;
+  if(powerUpTaken)
+  {
+    powerUps = new ConcurrentHashMap<Integer, Sprite>();
+    powerUpIDs = new HashMap<Sprite, Integer>();
+  }
+  //remove destroyed walls
+  for(int currWallID: updateMsg.removedWalls)
+  {
+    Wall currWall = walls.get(currWallID);
+    walls.remove(currWallID);
+    wallIDs.remove(currWall);
+  }
+  //update partially destroyed walls
+  for(int currWallID: wallIDs.values())
+  {
+    Wall currWall = walls.get(currWallID);
+    currWall.hitCount = updateMsg.wallHits.get(currWallID);
+    currWall.setFrame(updateMsg.wallHits.get(currWallID) / 2);
+  }
+  //update tanks health
+  for(int i = 0; i < 4; i++)
+  {
+    if(tanks[i] != null)
+    {
+      tanks[i].health.percent = updateMsg.health.get(i);
+    }
+  }
+}
+
+/**
  * Update and Draw everything in the game
  */
 void draw()
@@ -302,6 +367,19 @@ void draw()
   deltaTime = (float) timer.getElapsedTime();
   background(backgroundColor);
   processUserGameInput(deltaTime);
+  if(drawCircles)
+  {
+    ellipseMode(CENTER);
+    for(int i = 0; i < 4; i++)
+    {
+      if(tanks[i] != null)
+      {
+        noStroke();
+        fill(tankBackgroundColors[i]);
+        ellipse((float)tanks[i].tankBase.getX(), (float)tanks[i].tankBase.getY(), 300 * scaleSize, 300 * scaleSize);
+      }
+    }
+  }
   for(Line currLine: tankTrails)
   {
     currLine.draw();
@@ -436,7 +514,7 @@ void attentionUpdate()
  */
 void notLookingTasks()
 {
-  timeSinceLooking = millis();
+  timeSinceNotLooking = millis();
   if(millis() - trailTimer >= 0)
   {
     //if there are no current trails, set previous positions to current 
@@ -467,7 +545,7 @@ void notLookingTasks()
     {
       if(tanks[i] != null)
       {
-        tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
+        tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), tankColors[i], (int)(12 * scaleSize)));
         tanks[i].prevX = tanks[i].tankBase.getX();
         tanks[i].prevY = tanks[i].tankBase.getY();
       }
@@ -488,9 +566,13 @@ void notLookingTasks()
     {
       for(Message m: networkMessages)
       {
-        m.visibleLimit = 1000;
+        m.visibleLimit = 20000;
         m.timeVisible = millis();
       }
+    }
+    if(millis() - timeSinceLooking > 3000)
+    {
+      drawCircles = true;
     }
   }
 } 
@@ -500,10 +582,11 @@ void notLookingTasks()
  */
 void lookingTasks()
 {
+  timeSinceLooking = millis();
   //equation for finding how fast to remove old images.  Exponential equation so older images get removed faster
   //Doesn't get below 5 so that the tail will continue to be removed when it gets short 
   //Equation:   tankTrails.size() = (removeNumber ^ 3) / 2
-  int removeNumber = max(15, (int) pow(((float) tankTrails.size() * 3.0), (1.0 / 2.0)));
+  int removeNumber = max(15 * numPlayers, (int) pow(((float) tankTrails.size() * 3.0), (1.0 / 2.0)) * numPlayers);
   //if there are tank trails, keep adding trails so that there is a seemless transition to current gameplay
   if(millis() - trailTimer > 0 && tankTrails.size() > removeNumber + 1)
   {
@@ -511,7 +594,7 @@ void lookingTasks()
     {
       if(tanks[i] != null)
       {
-        tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), color(40, 150, 30), (int)(12 * scaleSize)));
+        tankTrails.add(new Line((int)tanks[i].prevX, (int)tanks[i].prevY, (int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY(), tankColors[i], (int)(12 * scaleSize)));
         tanks[i].prevX = tanks[i].tankBase.getX();
         tanks[i].prevY = tanks[i].tankBase.getY();
       }
@@ -583,7 +666,7 @@ void lookingTasks()
     }
     wallHitsIt.remove();
   }
-  if(millis() - timeSinceLooking > 5000)
+  if(millis() - timeSinceNotLooking > 5000)
   {
     for(int i = 0; i < 4; i++)
     {
@@ -593,11 +676,15 @@ void lookingTasks()
       }
     }
   }
+  if(millis() - timeSinceNotLooking > 2000)
+  {
+    drawCircles = false;
+  }
   ListIterator<Message> messageIt = networkMessages.listIterator();
   while(messageIt.hasNext())
   {
     Message m = messageIt.next();
-    if(m.visibleLimit != 1000.0 && networkMessages.size() > 5)
+    if(m.visibleLimit != 20000.0 && networkMessages.size() > 5)
     {
       messageIt.remove();
     }
@@ -723,9 +810,10 @@ void processCollision(Object object)
       {
         synchronized(deadTanks)
         {
-          deadTanks.add(new DeadTank(tanks[hitMsg.player - 1].tankBase.getX(), tanks[hitMsg.player - 1].tankBase.getY(), tankTrails.size()));
+          deadTanks.add(new DeadTank(tanks[hitMsg.player - 1].tankBase.getX(), tanks[hitMsg.player - 1].tankBase.getY(), tankTrails.size(), hitMsg.player));
         }
         tanks[hitMsg.player - 1].health.percent = 100;
+        tanks[hitMsg.player - 1].lastSeenHealth = 100;
       }
     }
     else //looking
@@ -778,6 +866,15 @@ synchronized int getCurrNumFaces()
 synchronized void setCurrNumFaces(int faces)
 {
   currNumFaces = faces;
+}
+
+void keyPressed()
+{
+  //override escape so people don't accidentally exit when try to chat
+  if(key == ESC)
+  {
+    key = 0;
+  }
 }
 
 void keyTyped()

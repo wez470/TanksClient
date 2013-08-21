@@ -13,10 +13,10 @@ public class ClientTank
   public HealthBar health;
   public int lastSeenHealth;
   
-  public ClientTank(PApplet applet, float scaleSize)
+  public ClientTank(PApplet applet, float scaleSize, int playerNum)
   {
-    tankBase = new Sprite(applet, "Images/BaseDoneFitted.png", 100);
-    tankTurret = new Sprite(applet, "Images/LongGunFitted.png", 100);
+    tankBase = new Sprite(applet, "Images/BaseDoneFitted" + playerNum + ".png", 100);
+    tankTurret = new Sprite(applet, "Images/LongGunFitted" + playerNum + ".png", 100);
     tankTurret.setScale(1.2 * scaleSize);
     tankBase.setScale(scaleSize);
     prevX = 0;
