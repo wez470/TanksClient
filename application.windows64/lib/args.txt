@@ -1,3 +1,0 @@
- -Xms64m -Xmx250m
-TanksClient
-TanksClient.jar,core.jar,kryonet.jar,procontroll.jar,sprites.jar,SimpleOpenNI.jar,javacpp.jar,javacv-android-arm.jar,javacv-linux-x86.jar,javacv-linux-x86_64.jar,javacv-macosx-x86_64.jar,javacv-windows-x86.jar,javacv-windows-x86_64.jar,javacv.jar,javacvPro.jar,NyAR4psg.jar,NyARToolkit.jar

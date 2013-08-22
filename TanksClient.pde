@@ -69,6 +69,9 @@ LinkedList<Message> networkMessages = new LinkedList<Message>();
 String currentInput = new String();
 boolean inputEnabled = false;
 boolean drawCircles = false;
+boolean invincible = false;
+boolean disattentionOverride = false;
+boolean testMode = true;
 
 /**
  * Setup the game for play
@@ -93,7 +96,7 @@ void setup()
   
   scalePosition = height / 600.0;
   scaleSize = height / 2400.0;
-  bulletSpeed = 50.0 * scalePosition;
+  bulletSpeed = 200.0 * scalePosition;
   tanks = new ClientTank[4];
   
   timer = new StopWatch();
@@ -140,6 +143,16 @@ void setup()
       else if(object instanceof Network.PowerUpReceivedMsg)
       {
         powerUpTimer = millis();
+      }
+      else if(object instanceof Network.InvincibleClientMsg)
+      {
+        tanks[((Network.InvincibleClientMsg)object).player - 1].invincible = true;
+        invincible = true;
+      }
+      else if(object instanceof Network.InvincibleStopClientMsg)
+      {
+        tanks[((Network.InvincibleStopClientMsg)object).player - 1].invincible = false;
+        invincible = false;
       }
       else if(object instanceof Network.ChatMsg)
       {
@@ -253,13 +266,23 @@ void setupController()
   }
   if(sticks)
   {
+    //logitech
     controller.plug(this, "handleRBPress", ControllIO.WHILE_PRESS, 6);
+    if(testMode)
+    {
+      controller.plug(this, "handleLBPress", ControllIO.ON_PRESS, 5);
+    }
     turretStick = controller.getStick(0);
     moveStick = controller.getStick(1);
   }
   else if(sliders)
   {
+    //xbox
     controller.plug(this, "handleRBPress", ControllIO.WHILE_PRESS, 5);
+    if(testMode)
+    {
+      controller.plug(this, "handleLBPress", ControllIO.ON_PRESS, 4);
+    }
     turretStick = new ControllStick(controller.getSlider(3), controller.getSlider(2));
     moveStick = new ControllStick(controller.getSlider(1), controller.getSlider(0));    
   }
@@ -290,6 +313,15 @@ void handleRBPress()
       shotTimer = millis();
     }
   }
+}
+
+/**
+ * Function to handle not looking requests
+ * triggered by left bumper presses
+ */
+void handleLBPress()
+{
+    disattentionOverride = !disattentionOverride;
 }
 
 /**
@@ -380,6 +412,17 @@ void draw()
       }
     }
   }
+  for(int i = 0; i < 4; i++)
+  {
+    if(tanks[i] != null && tanks[i].invincible)
+    {
+      ellipseMode(CENTER);
+      stroke(0, 140, 255, 255);
+      strokeWeight(2);
+      fill(0, 0, 0, 0);
+      ellipse((float)tanks[i].tankBase.getX(), (float)tanks[i].tankBase.getY(), 350 * scaleSize, 350 * scaleSize);
+    }
+  }
   for(Line currLine: tankTrails)
   {
     currLine.draw();
@@ -462,7 +505,7 @@ void drawText()
   {
     fill(0, 0, 0, 100);
     stroke(0, 0, 0, 100);
-    rect(5 *  scaleSize, 5 * scaleSize, width - 340 * scaleSize, 60 * scaleSize);
+    rect(5 *  scaleSize, 5 * scaleSize, width - 740 * scaleSize, 60 * scaleSize);
   }
   fill(0);
   textSize(64 * scaleSize);
@@ -499,6 +542,7 @@ void attentionUpdate()
   {
     looking = false;
   }
+  
   if(!looking)
   {
     notLookingTasks();
@@ -570,6 +614,11 @@ void notLookingTasks()
         m.timeVisible = millis();
       }
     }
+    if(millis() - timeSinceLooking > 1000)
+    {
+      Network.InvincibleServerMsg invincibleMsg = new Network.InvincibleServerMsg();
+      client.sendTCP(invincibleMsg);
+    }
     if(millis() - timeSinceLooking > 3000)
     {
       drawCircles = true;
@@ -612,7 +661,7 @@ void lookingTasks()
     }
   }
   //remove part of tank trails
-  for(int i = 0; i < min(4 * removeNumber * scaleSize, tankTrails.size()); i++)
+  for(int i = 0; i < min(removeNumber /** 4 * scaleSize*/, tankTrails.size()); i++)
   {
     tankTrails.get(i).opacity -= 30;
     if(tankTrails.get(i).opacity <= 30)
@@ -654,7 +703,7 @@ void lookingTasks()
   {
     Network.HitWallMsg hitMsg = wallHitsIt.next();
     Wall hitWall = walls.get(hitMsg.wallID);
-    hitWall.hitCount++;
+    hitWall.hitCount += 2;
     if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
     {
       hitWall.setFrame(hitWall.getFrame() + 1);
@@ -666,7 +715,7 @@ void lookingTasks()
     }
     wallHitsIt.remove();
   }
-  if(millis() - timeSinceNotLooking > 5000)
+  if(millis() - timeSinceNotLooking > 3000)
   {
     for(int i = 0; i < 4; i++)
     {
@@ -688,6 +737,11 @@ void lookingTasks()
     {
       messageIt.remove();
     }
+  }
+  if(millis() - timeSinceNotLooking > 100 && invincible)
+  {
+    Network.InvincibleStopServerMsg invincibleStopMsg = new Network.InvincibleStopServerMsg();
+    client.sendTCP(invincibleStopMsg);
   }
 }
 
@@ -782,7 +836,7 @@ void processCollision(Object object)
     if(looking)
     {
       Wall hitWall = walls.get(hitMsg.wallID);
-      hitWall.hitCount++;
+      hitWall.hitCount += 2;
       if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
       {
         hitWall.setFrame(hitWall.getFrame() + 1);
@@ -902,7 +956,7 @@ void keyTyped()
     {
       currentInput = currentInput.substring(0, currentInput.length() - 1);
     }
-    else if (textWidth(currentInput) < width - 400 * scaleSize)
+    else if (textWidth(currentInput) < width - 800 * scaleSize)
     {
       currentInput = currentInput + key;
     }

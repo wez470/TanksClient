@@ -12,6 +12,7 @@ public class ClientTank
   public double prevY;
   public HealthBar health;
   public int lastSeenHealth;
+  public boolean invincible;
   
   public ClientTank(PApplet applet, float scaleSize, int playerNum)
   {
@@ -23,6 +24,7 @@ public class ClientTank
     prevY = 0;
     health = new HealthBar((int)(tankBase.getX() - 100 * scalePosition), (int)(tankBase.getY() - 100 * scalePosition));
     lastSeenHealth = 100;
+    invincible = false;
   }
   
   public void drawBase()

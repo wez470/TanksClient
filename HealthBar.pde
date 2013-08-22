@@ -14,7 +14,7 @@ class HealthBar
 
   public void draw(int lastSeenHealth)
   {
-    strokeWeight(1);
+    strokeWeight(4 * scaleSize);
     noStroke();
     //draw yellow last seen bar
     fill(255, 255, 0);
@@ -22,7 +22,7 @@ class HealthBar
     fill(200, 0, 0);
     //draw red health bar
     rect(x - 25 * scalePosition, y - 45 * scalePosition, percent / 2 * scalePosition, 9 * scalePosition);
-    stroke(1);
+    stroke(0);
     fill(255, 255, 255, 0);  
     //draw rectangle that encloses health bar
     rect(x - 25 * scalePosition, y - 45 * scalePosition, 50 * scalePosition, 9 * scalePosition);   
