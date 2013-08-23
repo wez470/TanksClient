@@ -22,7 +22,7 @@ ControllStick moveStick;
 StopWatch timer;
 color backgroundColor = color(213, 189, 122);
 color[] tankColors = new color[]{color(40, 150, 30), color(220, 150, 30), color(165, 50, 50), color(67, 90, 229)};
-color[] tankBackgroundColors = new color[]{color(25, 85, 20, 100), color(145, 100, 25, 100), color(95, 25, 25, 100), color(20, 30, 100, 100)};
+color[] tankBackgroundColors = new color[]{color(139, 148, 82), color(186, 154, 84), color(166, 125, 84), color(137, 127, 113)};
 ConcurrentHashMap<Integer, Bullet> bullets;
 HashMap<Bullet, Integer> bulletIDs;
 HashMap<Wall, Integer> wallIDs;
@@ -37,6 +37,7 @@ int rotateTimer = -20;
 float scaleSize; 
 float scalePosition;
 ClientTank[] tanks;
+Score[] scores;
 int numPlayers = 0;
 boolean stopped = true;
 float prevRot = 1000.0;
@@ -69,6 +70,7 @@ LinkedList<Message> networkMessages = new LinkedList<Message>();
 String currentInput = new String();
 boolean inputEnabled = false;
 boolean drawCircles = false;
+boolean drawNotSeenKills = false;
 boolean invincible = false;
 boolean disattentionOverride = false;
 boolean testMode = true;
@@ -98,6 +100,7 @@ void setup()
   scaleSize = height / 2400.0;
   bulletSpeed = 200.0 * scalePosition;
   tanks = new ClientTank[4];
+  scores = new Score[4];
   
   timer = new StopWatch();
   
@@ -147,16 +150,17 @@ void setup()
       else if(object instanceof Network.InvincibleClientMsg)
       {
         tanks[((Network.InvincibleClientMsg)object).player - 1].invincible = true;
-        invincible = true;
       }
       else if(object instanceof Network.InvincibleStopClientMsg)
       {
         tanks[((Network.InvincibleStopClientMsg)object).player - 1].invincible = false;
-        invincible = false;
       }
       else if(object instanceof Network.ChatMsg)
       {
-        networkMessages.add(new Message(((Network.ChatMsg) object).message));
+        synchronized(networkMessages)
+        {
+          networkMessages.add(new Message(((Network.ChatMsg) object).message));
+        }
       }
       else if(object instanceof Network.UpdateClientMsg)
       {
@@ -164,7 +168,8 @@ void setup()
       }
     }
   });
-  String inputIP = JOptionPane.showInputDialog(this, "Enter the IP address to connect to");
+  //String inputIP = JOptionPane.showInputDialog(this, "Enter the IP address to connect to");
+  String inputIP = "127.0.0.1";
   try
   {
     client.connect(5000, inputIP, Network.TCPPort, Network.UDPPort);
@@ -381,12 +386,14 @@ void processUpdateClientMsg(Network.UpdateClientMsg updateMsg)
     currWall.hitCount = updateMsg.wallHits.get(currWallID);
     currWall.setFrame(updateMsg.wallHits.get(currWallID) / 2);
   }
-  //update tanks health
+  //update tanks health and scores
   for(int i = 0; i < 4; i++)
   {
     if(tanks[i] != null)
     {
       tanks[i].health.percent = updateMsg.health.get(i);
+      scores[i] = new Score(i + 1);
+      scores[i].kills = updateMsg.scores.get(i);
     }
   }
 }
@@ -409,6 +416,11 @@ void draw()
         noStroke();
         fill(tankBackgroundColors[i]);
         ellipse((float)tanks[i].tankBase.getX(), (float)tanks[i].tankBase.getY(), 300 * scaleSize, 300 * scaleSize);
+        pushMatrix();
+        translate((int)tanks[i].tankBase.getX(), (int)tanks[i].tankBase.getY());
+        rotate((float)tanks[i].tankTurret.getRot() + PI);
+        rect(-11.0, 0.0, 22, 80.0);
+        popMatrix();
       }
     }
   }
@@ -477,6 +489,34 @@ void draw()
   }
   attentionUpdate();
   drawText();
+  PriorityQueue<Score> orderedScores = new PriorityQueue<Score>(4);
+  for(int i = 0; i < 4; i++)
+  {
+    if(scores[i] != null)
+    {
+      orderedScores.add(scores[i]);
+    }
+  }
+  int numScores = numPlayers - 1;
+  for(int i = 0; i < 4; i++)
+  {
+    if(scores[i] != null)
+    {
+      fill(0, 0, 0, 210);
+      textSize(48 * scaleSize);
+      textAlign(LEFT);
+      if(drawNotSeenKills)
+      {
+        Score currScore = orderedScores.poll();
+        text(currScore.toString() + " +" + currScore.notSeenKills, 4 * scaleSize, height - 16 * scaleSize - 48 * numScores * scaleSize);        
+      }
+      else
+      {
+        text(orderedScores.poll().toString(), 4 * scaleSize, height - 16 * scaleSize - 48 * numScores * scaleSize);
+      }
+      numScores--;
+    }
+  }
   for(Bullet currBullet: bullets.values())
   {
     currBullet.bullet.update(deltaTime);
@@ -505,27 +545,30 @@ void drawText()
   {
     fill(0, 0, 0, 100);
     stroke(0, 0, 0, 100);
-    rect(5 *  scaleSize, 5 * scaleSize, width - 740 * scaleSize, 60 * scaleSize);
+    rect(5 *  scaleSize, 5 * scaleSize, width - 1040 * scaleSize, 60 * scaleSize);
   }
   fill(0);
   textSize(64 * scaleSize);
   textAlign(LEFT);
   //print text buffered from edge
   text(currentInput, 12 * scaleSize, 56 * scaleSize);
-  int i = networkMessages.size() - 1;
-  ListIterator<Message> messagesIt = networkMessages.listIterator();
-  while(messagesIt.hasNext())
+  synchronized(networkMessages)
   {
-    Message m = messagesIt.next();
-    if(m.remove)
+    int i = networkMessages.size() - 1;
+    ListIterator<Message> messagesIt = networkMessages.listIterator();
+    while(messagesIt.hasNext())
     {
-      messagesIt.remove();
+      Message m = messagesIt.next();
+      if(m.remove)
+      {
+        messagesIt.remove();
+      }
+      else
+      {
+        m.draw(i);
+      }
+      i--;
     }
-    else
-    {
-      m.draw(i);
-    }
-    i--;
   }
 }
 
@@ -597,30 +640,35 @@ void notLookingTasks()
     //since the user isn't looking, add lines to show where the bullets are
     for(Bullet currBullet: bullets.values())
     {
-      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
+      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(0), (int)(4 * scaleSize)));
       currBullet.prevX = (int)currBullet.bullet.getX();
       currBullet.prevY = (int)currBullet.bullet.getY();
     }
     trailTimer = millis();
-    while(networkMessages.size() > 30)
+    synchronized(networkMessages)
     {
-      networkMessages.removeFirst();
-    }
-    if(networkMessages.size() > 5)
-    {
-      for(Message m: networkMessages)
+      while(networkMessages.size() > 30)
       {
-        m.visibleLimit = 20000;
-        m.timeVisible = millis();
+        networkMessages.removeFirst();
+      }
+      if(networkMessages.size() > 5)
+      {
+        for(Message m: networkMessages)
+        {
+          m.visibleLimit = 20000;
+          m.timeVisible = millis();
+        }
       }
     }
-    if(millis() - timeSinceLooking > 1000)
+    if(millis() - timeSinceLooking > 1000 && !invincible)
     {
       Network.InvincibleServerMsg invincibleMsg = new Network.InvincibleServerMsg();
       client.sendTCP(invincibleMsg);
+      invincible = true;
     }
-    if(millis() - timeSinceLooking > 3000)
+    if(millis() - timeSinceLooking > 2000)
     {
+      drawNotSeenKills = true;
       drawCircles = true;
     }
   }
@@ -655,13 +703,13 @@ void lookingTasks()
   {
     for(Bullet currBullet: bullets.values())
     {
-      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(150, 30, 40), (int)(4 * scaleSize)));
+      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(0), (int)(4 * scaleSize)));
       currBullet.prevX = (int)currBullet.bullet.getX();
       currBullet.prevY = (int)currBullet.bullet.getY();
     }
   }
   //remove part of tank trails
-  for(int i = 0; i < min(removeNumber /** 4 * scaleSize*/, tankTrails.size()); i++)
+  for(int i = 0; i < min(removeNumber, tankTrails.size()); i++)
   {
     tankTrails.get(i).opacity -= 30;
     if(tankTrails.get(i).opacity <= 30)
@@ -688,7 +736,7 @@ void lookingTasks()
     }
   }
   //remove faster than tank trails
-  for(int i = 0; i < min(8 * removeNumber * scaleSize, bulletTrails.size()); i++)
+  for(int i = 0; i < min(2 * removeNumber, bulletTrails.size()); i++)
   {
     bulletTrails.get(i).opacity -= 30;
     if(bulletTrails.get(i).opacity <= 30)
@@ -728,20 +776,32 @@ void lookingTasks()
   if(millis() - timeSinceNotLooking > 2000)
   {
     drawCircles = false;
-  }
-  ListIterator<Message> messageIt = networkMessages.listIterator();
-  while(messageIt.hasNext())
-  {
-    Message m = messageIt.next();
-    if(m.visibleLimit != 20000.0 && networkMessages.size() > 5)
+    drawNotSeenKills = false;
+    for(int i = 0; i < 4; i++)
     {
-      messageIt.remove();
+      if(scores[i] != null)
+      {
+        scores[i].notSeenKills = 0;
+      }
+    }
+  }
+  synchronized(networkMessages)
+  {
+    ListIterator<Message> messageIt = networkMessages.listIterator();
+    while(messageIt.hasNext())
+    {
+      Message m = messageIt.next();
+      if(m.visibleLimit != 20000.0 && networkMessages.size() > 5)
+      {
+        messageIt.remove();
+      }
     }
   }
   if(millis() - timeSinceNotLooking > 100 && invincible)
   {
     Network.InvincibleStopServerMsg invincibleStopMsg = new Network.InvincibleStopServerMsg();
     client.sendTCP(invincibleStopMsg);
+    invincible = false;
   }
 }
 
@@ -868,6 +928,8 @@ void processCollision(Object object)
         }
         tanks[hitMsg.player - 1].health.percent = 100;
         tanks[hitMsg.player - 1].lastSeenHealth = 100;
+        scores[hitMsg.shooter - 1].kills++;
+        scores[hitMsg.shooter - 1].notSeenKills++;
       }
     }
     else //looking
@@ -877,6 +939,7 @@ void processCollision(Object object)
       {
         tanks[hitMsg.player - 1].health.percent = 100;
         tanks[hitMsg.player - 1].lastSeenHealth = 100;
+        scores[hitMsg.shooter - 1].kills++;
       }
     }
     Bullet hitBullet = bullets.get(hitMsg.bulletID);
@@ -944,10 +1007,11 @@ void keyTyped()
   } 
   if(inputEnabled)
   {
+    textSize(64 * scaleSize);
     if(key == ENTER)
     {
       Network.ChatMsg chatMsg = new Network.ChatMsg();
-      chatMsg.message = currentInput + key;
+      chatMsg.message = currentInput;
       client.sendTCP(chatMsg);
       currentInput = "";
       inputEnabled = false;
@@ -956,7 +1020,7 @@ void keyTyped()
     {
       currentInput = currentInput.substring(0, currentInput.length() - 1);
     }
-    else if (textWidth(currentInput) < width - 800 * scaleSize)
+    else if (textWidth(currentInput) < width - 1100 * scaleSize)
     {
       currentInput = currentInput + key;
     }
