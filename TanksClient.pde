@@ -600,6 +600,24 @@ void draw()
     }
     if(saveAfterFrame)
     {
+      //deteriorate all walls that were hit when the user was not looking for the screenshot
+      ListIterator<Network.HitWallMsg> wallHitsIt = missedWallHits.listIterator(0);
+      while(wallHitsIt.hasNext())
+      {
+        Network.HitWallMsg hitMsg = wallHitsIt.next();
+        Wall hitWall = walls.get(hitMsg.wallID);
+        hitWall.hitCount += 1;
+        if(hitWall.hitCount % 2 == 0 && hitWall.hitCount < 10)
+        {
+          hitWall.setFrame(hitWall.getFrame() + 1);
+        }
+        if(hitWall.hitCount >= 10)
+        {
+          wallIDs.remove(hitWall);
+          walls.remove(hitMsg.wallID);
+        }
+        wallHitsIt.remove();
+      }
       saveFrame("log/" + time() + ".png");
       saveAfterFrame = false;
     }
@@ -714,7 +732,7 @@ void notLookingTasks()
     for(Bullet currBullet: bullets.values())
     {
       currBullet.trail = true;
-      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(0), (int)(4 * scaleSize)));
+      bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(0, 0, 0, 100), (int)(4 * scaleSize)));
       currBullet.prevX = (int)currBullet.bullet.getX();
       currBullet.prevY = (int)currBullet.bullet.getY();
     }
@@ -734,7 +752,7 @@ void notLookingTasks()
         }
       }
     }
-    if(millis() - timeSinceLooking > 1000 && !invincible)
+    if((millis() - timeSinceLooking > 1000 || blackout) && !invincible)
     {
       Network.InvincibleServerMsg invincibleMsg = new Network.InvincibleServerMsg();
       client.sendTCP(invincibleMsg);
@@ -779,7 +797,7 @@ void lookingTasks()
     {
       if(currBullet.trail)
       {
-        bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(0), (int)(4 * scaleSize)));
+        bulletTrails.add(new Line(currBullet.prevX, currBullet.prevY, (int)currBullet.bullet.getX(), (int)currBullet.bullet.getY(), color(0, 0, 0, 100), (int)(4 * scaleSize)));
         currBullet.prevX = (int)currBullet.bullet.getX();
         currBullet.prevY = (int)currBullet.bullet.getY();
       }
